@@ -4,7 +4,7 @@ from miscc.utils import mkdir_p
 from miscc.utils import build_super_images
 from miscc.losses import sent_loss, words_loss
 from miscc.config import cfg, cfg_from_file
-
+from chexpert_datasets import ChexpertDataset
 from datasets import TextDataset
 from datasets import prepare_data
 
@@ -19,6 +19,7 @@ import datetime
 import dateutil.tz
 import argparse
 import numpy as np
+import tqdm
 from PIL import Image
 
 import torch
@@ -38,7 +39,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a DAMSM network')
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
-                        default='cfg/DAMSM/bird.yml', type=str)
+                        default='cfg/DAMSM/chexpert.yml', type=str)
     parser.add_argument('--gpu', dest='gpu_id', type=int, default=0)
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
@@ -56,7 +57,7 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
     w_total_loss1 = 0
     count = (epoch + 1) * len(dataloader)
     start_time = time.time()
-    for step, data in enumerate(dataloader, 0):
+    for step, data in tqdm.tqdm(enumerate(dataloader, 0), total=len(dataloader)):
         rnn_model.zero_grad()
         cnn_model.zero_grad()
 
@@ -162,7 +163,11 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
 
 def build_models():
     # build model ############################################################
+    print('-'*80)
+    print('Building RNN model...')
     text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    print('-'*80)
+    print('Building CNN model...')
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
     labels = Variable(torch.LongTensor(range(batch_size)))
     start_epoch = 0
@@ -231,30 +236,48 @@ if __name__ == "__main__":
     # Get data loader ##################################################
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM-1))
     batch_size = cfg.TRAIN.BATCH_SIZE
-    image_transform = transforms.Compose([
-        transforms.Scale(int(imsize * 76 / 64)),
-        transforms.RandomCrop(imsize),
-        transforms.RandomHorizontalFlip()])
-    dataset = TextDataset(cfg.DATA_DIR, 'train',
-                          base_size=cfg.TREE.BASE_SIZE,
-                          transform=image_transform)
 
-    print(dataset.n_words, dataset.embeddings_num)
+    # TODO: transforms to use 
+    image_transform = transforms.Compose([
+        #transforms.Scale(int(imsize * 76 / 64)),
+        transforms.RandomCrop(imsize),
+        #transforms.RandomHorizontalFlip()
+    ])
+
+    if cfg.DATASET_NAME == 'chexpert':
+        dataset = ChexpertDataset(cfg.DATA_DIR, 'train',
+                            base_size=cfg.TREE.BASE_SIZE,
+                            transform=image_transform)
+    else:
+        dataset = TextDataset(cfg.DATA_DIR, 'train',
+                            base_size=cfg.TREE.BASE_SIZE,
+                            transform=image_transform)
+
     assert dataset
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, drop_last=True,
         shuffle=True, num_workers=int(cfg.WORKERS))
 
     # # validation data #
-    dataset_val = TextDataset(cfg.DATA_DIR, 'test',
-                              base_size=cfg.TREE.BASE_SIZE,
-                              transform=image_transform)
+    if cfg.DATASET_NAME == 'chexpert':
+        dataset_val = ChexpertDataset(cfg.DATA_DIR, 'valid',
+                            base_size=cfg.TREE.BASE_SIZE,
+                            transform=image_transform)
+    else:
+        dataset_val = TextDataset(cfg.DATA_DIR, 'valid',
+                            base_size=cfg.TREE.BASE_SIZE,
+                            transform=image_transform)
+
     dataloader_val = torch.utils.data.DataLoader(
         dataset_val, batch_size=batch_size, drop_last=True,
         shuffle=True, num_workers=int(cfg.WORKERS))
 
     # Train ##############################################################
+    print('='*80)
+    print('Building models...')
     text_encoder, image_encoder, labels, start_epoch = build_models()
+    print('='*80)
+    print('Finish Building models...')
     para = list(text_encoder.parameters())
     for v in image_encoder.parameters():
         if v.requires_grad:
