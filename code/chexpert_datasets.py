@@ -131,6 +131,7 @@ class ChexpertDataset(data.Dataset):
         split_dir = os.path.join(data_dir, split)
 
         self.path2sent = dict()
+        self.to_remove = []
 
         csv_path = os.path.join(CHEXPERT_DATA_DIR, 'master_updated.csv') 
         self.df = pd.read_csv(csv_path)
@@ -139,12 +140,11 @@ class ChexpertDataset(data.Dataset):
         )
 
         self.filenames, self.captions, self.ixtoword, \
-            self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
+            self.wordtoix, self.n_words, self.path2sent = self.load_text_data(data_dir, split)
 
         #self.class_id = self.load_class_id(split_dir, len(self.filenames))
         # TODO: figure out what to use for class id
         self.class_id = self.df[self.df.Split == split]['No Finding'].tolist()
-
 
         self.number_example = len(self.filenames)
 
@@ -184,13 +184,11 @@ class ChexpertDataset(data.Dataset):
                 cnt += 1
                 if cnt == self.embeddings_num:
                     break
-
-            # TODO: what to do here? 
-            #if cnt < self.embeddings_num:
-            #    print('ERROR: the captions for %s less than %d'
-            #
-            #            % (row[PATH_COL], cnt))
-            self.path2sent[row[PATH_COL]] = study_sent
+            
+            if len(study_sent) > 0:
+                self.path2sent[row[PATH_COL]] = study_sent
+            else:
+                self.to_remove.append(row[PATH_COL])
         return all_captions
 
     def build_dictionary(self, train_captions, test_captions):
@@ -236,11 +234,9 @@ class ChexpertDataset(data.Dataset):
                     if w in wordtoix:
                         rev.append(wordtoix[w])
                 path2sent_new[path].append(rev)
-        
-        self.path2sent = path2sent_new
 
         return [train_captions_new, test_captions_new,
-                ixtoword, wordtoix, len(ixtoword)]
+                ixtoword, wordtoix, len(ixtoword), path2sent_new]
 
     def load_text_data(self, data_dir, split):
         filepath = os.path.join(data_dir, 'captions.pickle')
@@ -248,11 +244,11 @@ class ChexpertDataset(data.Dataset):
             train_captions = self.load_captions('train')
             test_captions = self.load_captions('valid')
 
-            train_captions, test_captions, ixtoword, wordtoix, n_words = \
+            train_captions, test_captions, ixtoword, wordtoix, n_words, path2sent = \
                 self.build_dictionary(train_captions, test_captions)
             with open(filepath, 'wb') as f:
                 pickle.dump([train_captions, test_captions,
-                             ixtoword, wordtoix, self.path2sent], f, protocol=2)
+                             ixtoword, wordtoix, path2sent], f, protocol=2)
                 print('Save to: ', filepath)
         else:
             with open(filepath, 'rb') as f:
@@ -260,7 +256,7 @@ class ChexpertDataset(data.Dataset):
                 x = pickle.load(f)
                 train_captions, test_captions = x[0], x[1]
                 ixtoword, wordtoix = x[2], x[3]
-                self.path2sent = x[4]
+                path2sent = x[4]
                 del x
                 n_words = len(ixtoword)
                 print('Load from: ', filepath)
@@ -272,8 +268,10 @@ class ChexpertDataset(data.Dataset):
         else:  # split=='test'
             captions = test_captions
             filenames = self.df[self.df.Split == 'valid'][PATH_COL].tolist()
+        
+        filenames = [f for f in filenames if f not in self.to_remove]
 
-        return filenames, captions, ixtoword, wordtoix, n_words
+        return filenames, captions, ixtoword, wordtoix, n_words, path2sent
 
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
