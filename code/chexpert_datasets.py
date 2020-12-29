@@ -12,6 +12,7 @@ import torch.utils.data as data
 from torch.autograd import Variable
 import torchvision.transforms as transforms
 
+import re
 import os
 import sys
 import numpy as np
@@ -154,9 +155,11 @@ class ChexpertDataset(data.Dataset):
         all_captions = []
         for idx, row in tqdm.tqdm(df_split.iterrows(), total=df_split.shape[0]):
 
-            # TODO get David's way to split by number 
             captions = row[REPORT_COL].replace('\n', ' ')
-            captions = captions.split('.')
+
+            splitter = re.compile('[0-9]+\.')
+            captions = splitter.split(captions)
+
             cnt = 0
             study_sent = []
             for cap in captions:
@@ -314,6 +317,11 @@ class ChexpertDataset(data.Dataset):
     def get_caption(self, path):
         
         series_sents = self.path2sent[path]
+
+        if len(series_sents) == 0:
+            print(path)
+            raise Exception('no sentence for path')
+
         sent_ix = random.randint(0, len(series_sents))
 
         # a list of indices for a sentence

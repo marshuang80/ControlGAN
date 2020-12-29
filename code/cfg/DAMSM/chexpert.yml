@@ -29,3 +29,17 @@ TEXT:
     EMBEDDING_DIM: 256
     CAPTIONS_PER_IMAGE: 5
     WORDS_NUM: 15
+
+## NUM WORDS
+#max: 177
+#min: 1
+#mean: 15.4
+#5th perc: 3
+#95th perc: 39
+
+## NUM Sentences
+#max: 18
+#min: 1
+#mean: 3.34
+#5th perc: 1.0
+#95th perc: 6.0
