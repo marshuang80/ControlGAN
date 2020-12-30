@@ -3,7 +3,7 @@ CONFIG_NAME: 'DAMSM'
 DATASET_NAME: 'chexpert'
 DATA_DIR: '/data4/embeddingx/CheXpert/CheXpert-v1.0/' 
 GPU_ID: 0
-WORKERS: 16
+WORKERS: 32
 
 
 TREE:
@@ -28,7 +28,7 @@ TRAIN:
 TEXT:
     EMBEDDING_DIM: 256
     CAPTIONS_PER_IMAGE: 5
-    WORDS_NUM: 15
+    WORDS_NUM: 30
 
 ## NUM WORDS
 #max: 177

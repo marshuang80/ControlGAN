@@ -138,6 +138,7 @@ class ChexpertDataset(data.Dataset):
         self.df[PATH_COL] = self.df[PATH_COL].apply(
             lambda x: os.path.join(CHEXPERT_DATA_DIR, '/'.join(x.split('/')[1:]))
         )
+        self.df = self.df[self.df[VIEW_COL] == "Frontal"]
 
         self.filenames, self.captions, self.ixtoword, \
             self.wordtoix, self.n_words, self.path2sent = self.load_text_data(data_dir, split)
@@ -248,7 +249,9 @@ class ChexpertDataset(data.Dataset):
                 self.build_dictionary(train_captions, test_captions)
             with open(filepath, 'wb') as f:
                 pickle.dump([train_captions, test_captions,
-                             ixtoword, wordtoix, path2sent], f, protocol=2)
+                             ixtoword, wordtoix, path2sent, self.to_remove], 
+                             f, protocol=2
+                            )
                 print('Save to: ', filepath)
         else:
             with open(filepath, 'rb') as f:
@@ -257,6 +260,7 @@ class ChexpertDataset(data.Dataset):
                 train_captions, test_captions = x[0], x[1]
                 ixtoword, wordtoix = x[2], x[3]
                 path2sent = x[4]
+                self.to_remove = x[5]
                 del x
                 n_words = len(ixtoword)
                 print('Load from: ', filepath)
