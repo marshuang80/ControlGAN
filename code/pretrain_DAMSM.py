@@ -121,11 +121,14 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
             start_time = time.time()
             # attention Maps
             img_set, _ = \
-                build_super_images(imgs[-1].cpu(), captions,
-                                   ixtoword, attn_maps, att_sze)
+                build_super_images(
+                    imgs[-1].cpu(), captions,
+                    ixtoword, attn_maps, att_sze,
+                    max_word_num=cfg.TEXT.WORDS_NUM
+                )
             if img_set is not None:
                 im = Image.fromarray(img_set)
-                fullpath = '%s/attention_maps%d.png' % (image_dir, step)
+                fullpath = '%s/attention_maps%d_%d.png' % (image_dir, epoch, step)
                 im.save(fullpath)
     return count
 
@@ -155,8 +158,8 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
         if step == 50:
             break
 
-    s_cur_loss = s_total_loss[0] / step
-    w_cur_loss = w_total_loss[0] / step
+    s_cur_loss = s_total_loss / step
+    w_cur_loss = w_total_loss / step
 
     return s_cur_loss, w_cur_loss
 

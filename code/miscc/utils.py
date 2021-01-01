@@ -23,7 +23,18 @@ COLOR_DIC = {0:[128,64,128],  1:[244, 35,232],
              12:[255, 0, 0],  13:[0, 0, 142],
              14:[119,11, 32], 15:[0, 60,100],
              16:[0, 80, 100], 17:[0, 0, 230],
-             18:[0,  0, 70],  19:[0, 0,  0]}
+             18:[0,  0, 70],  19:[0, 0,  0],
+             20:[128,64,128],  21:[244, 35,232],
+             22:[70, 70, 70],  23:[102,102,156],
+             24:[190,153,153], 25:[153,153,153],
+             26:[250,170, 30], 27:[220, 220, 0],
+             28:[107,142, 35], 29:[152,251,152],
+             30:[70,130,180], 31:[220,20, 60],
+             32:[255, 0, 0],  33:[0, 0, 142],
+             34:[119,11, 32], 35:[0, 60,100],
+             36:[0, 80, 100], 37:[0, 0, 230],
+             38:[0,  0, 70],  39:[0, 0,  0],
+             }
 FONT_MAX = 50
 
 
@@ -51,6 +62,8 @@ def build_super_images(real_imgs, captions, ixtoword,
                        attn_maps, att_sze, lr_imgs=None,
                        batch_size=cfg.TRAIN.BATCH_SIZE,
                        max_word_num=cfg.TEXT.WORDS_NUM):
+
+
     nvis = 8   ## must less than the numbe of batch size
     real_imgs = real_imgs[:nvis]
     if lr_imgs is not None:
@@ -95,8 +108,7 @@ def build_super_images(real_imgs, captions, ixtoword,
     img_set = []
     num = nvis  # len(attn_maps)
 
-    text_map, sentences = \
-        drawCaption(text_convas, captions, ixtoword, vis_size)
+    text_map, sentences = drawCaption(text_convas, captions, ixtoword, vis_size)
     text_map = np.asarray(text_map).astype(np.uint8)
 
     bUpdate = 1
@@ -125,13 +137,16 @@ def build_super_images(real_imgs, captions, ixtoword,
             one_map = attn[j]
             if (vis_size // att_sze) > 1:
                 one_map = \
-                    skimage.transform.pyramid_expand(
-                        one_map, sigma=20, upscale=vis_size // att_sze, 
-                        multichannel=True
-                    )
+                    skimage.transform.pyramid_expand(one_map, sigma=20, upscale=vis_size // att_sze, multichannel=True)
             row_beforeNorm.append(one_map)
             minV = one_map.min()
             maxV = one_map.max()
+
+            ## local norm
+            #one_map = (one_map - minV) / (maxV - minV)
+            #one_map *= 255
+            #row_beforeNorm.append(one_map)
+            ##
             if minVglobal > minV:
                 minVglobal = minV
             if maxVglobal < maxV:

@@ -115,8 +115,8 @@ class ChexpertDataset(data.Dataset):
 
         self.norm = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
-            #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))    # TODO: why was it normalized with 0.5
+            #transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))    # TODO: why was it normalized with 0.5
         ])   
         self.target_transform = target_transform    # NOTE: taget transform is none based on main
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE   # TODO: find out number of sentences 
