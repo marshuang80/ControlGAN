@@ -160,6 +160,8 @@ class ChexpertDataset(data.Dataset):
 
             splitter = re.compile('[0-9]+\.')
             captions = splitter.split(captions)
+            captions = [point.split('.') for point in captions]
+            captions = [sent for point in captions for sent in point]
 
             cnt = 0
             study_sent = []
