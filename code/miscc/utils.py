@@ -41,7 +41,7 @@ FONT_MAX = 50
 def drawCaption(convas, captions, ixtoword, vis_size, off1=2, off2=2):
     num = captions.size(0)
     img_txt = Image.fromarray(convas)
-    fnt = ImageFont.truetype('../eval/FreeMono.ttf', 50)
+    fnt = ImageFont.truetype('../eval/FreeMono.ttf', 45)
     d = ImageDraw.Draw(img_txt)
     sentence_list = []
     for i in range(num):
@@ -51,7 +51,7 @@ def drawCaption(convas, captions, ixtoword, vis_size, off1=2, off2=2):
             if cap[j] == 0:
                 break
             word = ixtoword[cap[j]].encode('ascii', 'ignore').decode('ascii')
-            d.text(((j + off1) * (vis_size + off2), i * FONT_MAX), '%d:%s' % (j, word[:6]),
+            d.text(((j + off1) * (vis_size + off2), i * FONT_MAX), '%d:%s' % (j, word),
                    font=fnt, fill=(255, 255, 255, 255))
             sentence.append(word)
         sentence_list.append(sentence)
@@ -68,7 +68,7 @@ def build_super_images(real_imgs, captions, ixtoword,
     real_imgs = real_imgs[:nvis]
     if lr_imgs is not None:
         lr_imgs = lr_imgs[:nvis]
-    if att_sze == 17:
+    if (att_sze == 17) or (att_sze == 19):
         vis_size = att_sze * 16
     else:
         vis_size = real_imgs.size(2)

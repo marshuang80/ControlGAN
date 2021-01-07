@@ -6,9 +6,9 @@ from miscc.losses import sent_loss, words_loss
 from miscc.config import cfg, cfg_from_file
 from chexpert_datasets import ChexpertDataset
 from datasets import TextDataset
-from datasets import prepare_data
+from chexpert_datasets import prepare_data
 
-from model import RNN_ENCODER, CNN_ENCODER
+from model import RNN_ENCODER, CNN_ENCODER, BERT_ENCODER
 
 import os
 import sys
@@ -24,10 +24,19 @@ from PIL import Image
 
 import torch
 import torch.nn as nn
+import random
 import torch.optim as optim
 from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
+
+
+# reproducibility 
+torch.manual_seed(0)
+torch.cuda.manual_seed(0)
+np.random.seed(0)
+random.seed(0)
+torch.backends.cudnn.deterministic=True
 
 
 dir_path = (os.path.abspath(os.path.join(os.path.realpath(__file__), './.')))
@@ -71,11 +80,16 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
         nef, att_sze = words_features.size(1), words_features.size(2)
         # words_features = words_features.view(batch_size, nef, -1)
 
-        hidden = rnn_model.init_hidden(batch_size)
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            words_emb, sent_emb = rnn_model(
+                captions['input_ids'], captions['attention_mask'], captions['token_type_ids']
+            )
+        else: 
+            hidden = rnn_model.init_hidden(batch_size)
 
-        # words_emb: batch_size x nef x seq_len
-        # sent_emb: batch_size x nef
-        words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+            # words_emb: batch_size x nef x seq_len
+            # sent_emb: batch_size x nef
+            words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
 
         w_loss0, w_loss1, attn_maps = words_loss(words_features, words_emb, labels,
                                                  cap_lens, class_ids, batch_size)
@@ -120,12 +134,21 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
             w_total_loss1 = 0
             start_time = time.time()
             # attention Maps
-            img_set, _ = \
-                build_super_images(
-                    imgs[-1].cpu(), captions,
-                    ixtoword, attn_maps, att_sze,
-                    max_word_num=cfg.TEXT.WORDS_NUM
-                )
+            if 'bert' in cfg.TEXT.TEXT_MODEL:
+                ids = captions['input_ids']
+                img_set, _ = \
+                    build_super_images(
+                        imgs[-1].cpu(), ids,
+                        ixtoword, attn_maps, att_sze,
+                        max_word_num=cfg.TEXT.WORDS_NUM
+                    )
+            else:
+                img_set, _ = \
+                    build_super_images(
+                        imgs[-1].cpu(), captions,
+                        ixtoword, attn_maps, att_sze,
+                        max_word_num=cfg.TEXT.WORDS_NUM
+                    )
             if img_set is not None:
                 im = Image.fromarray(img_set)
                 fullpath = '%s/attention_maps%d_%d.png' % (image_dir, epoch, step)
@@ -168,7 +191,10 @@ def build_models():
     # build model ############################################################
     print('-'*80)
     print('Building RNN model...')
-    text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    if 'bert' in cfg.TEXT.TEXT_MODEL:
+        text_encoder = BERT_ENCODER(cfg.TEXT.TEXT_MODEL)
+    else: 
+        text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     print('-'*80)
     print('Building CNN model...')
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
@@ -240,11 +266,8 @@ if __name__ == "__main__":
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM-1))
     batch_size = cfg.TRAIN.BATCH_SIZE
 
-    # TODO: transforms to use 
     image_transform = transforms.Compose([
-        #transforms.Scale(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
-        #transforms.RandomHorizontalFlip()
     ])
 
     if cfg.DATASET_NAME == 'chexpert':
@@ -288,12 +311,16 @@ if __name__ == "__main__":
 
     try:
         lr = cfg.TRAIN.ENCODER_LR
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            ixtoword = dataset.idxtoword
+        else: 
+            ixtoword = dataset.ixtoword
         for epoch in range(start_epoch, cfg.TRAIN.MAX_EPOCH):
             optimizer = optim.Adam(para, lr=lr, betas=(0.5, 0.999))
             epoch_start_time = time.time()
             count = train(dataloader, image_encoder, text_encoder,
                           batch_size, labels, optimizer, epoch,
-                          dataset.ixtoword, image_dir)
+                          ixtoword, image_dir)
             print('-' * 89)
             if len(dataloader_val) > 0:
                 s_loss, w_loss = evaluate(dataloader_val, image_encoder,

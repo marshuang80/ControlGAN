@@ -38,6 +38,8 @@ __C.TRAIN.NET_E = ''
 __C.TRAIN.NET_G = ''
 __C.TRAIN.WORD_CORRE = ''
 __C.TRAIN.B_NET_D = True
+__C.TRAIN.FREEZE_CNN = False
+__C.TRAIN.CNN_MODEL = 'inception'
 
 __C.TRAIN.SMOOTH = edict()
 __C.TRAIN.SMOOTH.GAMMA1 = 5.0
@@ -61,6 +63,7 @@ __C.TEXT = edict()
 __C.TEXT.CAPTIONS_PER_IMAGE = 10
 __C.TEXT.EMBEDDING_DIM = 256
 __C.TEXT.WORDS_NUM = 18
+__C.TEXT.TEXT_MODEL = 'lstm'
 
 
 def _merge_a_into_b(a, b):

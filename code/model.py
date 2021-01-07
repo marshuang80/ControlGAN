@@ -6,6 +6,10 @@ from torchvision import models
 import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
 
+from transformers import BertModel
+
+from torchvision import models as models_2d
+
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from miscc.config import cfg
@@ -157,44 +161,84 @@ class RNN_ENCODER(nn.Module):
         return words_emb, sent_emb
 
 
+class BERT_ENCODER(nn.Module):
+    def __init__(self, pretrain_name='bert-base-uncased'):
+        super(BERT_ENCODER, self).__init__()
+
+        self.model = BertModel.from_pretrained(
+            pretrain_name,
+            output_hidden_states = True, # Whether the model returns all hidden-states.
+        )
+
+    def forward(self, ids, attn_mask, token_type):
+
+        outputs = self.model(ids, attn_mask, token_type)
+
+        ### TODO: check layer to get word/sent emb from 
+        #hidden_states = outputs[2]
+        #token_embeddings = torch.stack(hidden_states, dim=0)
+
+        word_embeddings = outputs[0]
+        word_embeddings = word_embeddings.permute((0,2,1))
+
+        sent_embeddings = torch.mean(word_embeddings, axis=2)
+
+        return word_embeddings, sent_embeddings
+
+
 class CNN_ENCODER(nn.Module):
     def __init__(self, nef):
         super(CNN_ENCODER, self).__init__()
-        if cfg.TRAIN.FLAG:
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            self.nef = 768
+        elif cfg.TRAIN.FLAG:
             self.nef = nef
         else:
             self.nef = 256  # define a uniform ranker
 
-        model = models.inception_v3()
-        url = 'https://download.pytorch.org/models/inception_v3_google-1a9a5a14.pth'
-        model.load_state_dict(model_zoo.load_url(url))
-        for param in model.parameters():
-            param.requires_grad = False
-        print('Load pretrained model from ', url)
+        if cfg.TRAIN.CNN_MODEL == 'inception':
+            model = models.inception_v3()
+            url = 'https://download.pytorch.org/models/inception_v3_google-1a9a5a14.pth'
+            model.load_state_dict(model_zoo.load_url(url))
+            print('Load pretrained Inception model from ', url)
+        elif cfg.TRAIN.CNN_MODEL == 'resnet50':
+            model = models_2d.resnet50(pretrained=True)
+        else: 
+            raise NotImplementedError(f'{cfg.TRAIN_CNN} model not implemented')
+        
+        if cfg.TRAIN.FREEZE_CNN:
+            print('Freezing CNN model')
+            for param in model.parameters():
+                param.requires_grad = False
 
         self.define_module(model)
         self.init_trainable_weights()
 
     def define_module(self, model):
-        self.Conv2d_1a_3x3 = model.Conv2d_1a_3x3
-        self.Conv2d_2a_3x3 = model.Conv2d_2a_3x3
-        self.Conv2d_2b_3x3 = model.Conv2d_2b_3x3
-        self.Conv2d_3b_1x1 = model.Conv2d_3b_1x1
-        self.Conv2d_4a_3x3 = model.Conv2d_4a_3x3
-        self.Mixed_5b = model.Mixed_5b
-        self.Mixed_5c = model.Mixed_5c
-        self.Mixed_5d = model.Mixed_5d
-        self.Mixed_6a = model.Mixed_6a
-        self.Mixed_6b = model.Mixed_6b
-        self.Mixed_6c = model.Mixed_6c
-        self.Mixed_6d = model.Mixed_6d
-        self.Mixed_6e = model.Mixed_6e
-        self.Mixed_7a = model.Mixed_7a
-        self.Mixed_7b = model.Mixed_7b
-        self.Mixed_7c = model.Mixed_7c
-
-        self.emb_features = conv1x1(768, self.nef)
-        self.emb_cnn_code = nn.Linear(2048, self.nef)
+        if cfg.TRAIN.CNN_MODEL == 'inception':
+            self.Conv2d_1a_3x3 = model.Conv2d_1a_3x3
+            self.Conv2d_2a_3x3 = model.Conv2d_2a_3x3
+            self.Conv2d_2b_3x3 = model.Conv2d_2b_3x3
+            self.Conv2d_3b_1x1 = model.Conv2d_3b_1x1
+            self.Conv2d_4a_3x3 = model.Conv2d_4a_3x3
+            self.Mixed_5b = model.Mixed_5b
+            self.Mixed_5c = model.Mixed_5c
+            self.Mixed_5d = model.Mixed_5d
+            self.Mixed_6a = model.Mixed_6a
+            self.Mixed_6b = model.Mixed_6b
+            self.Mixed_6c = model.Mixed_6c
+            self.Mixed_6d = model.Mixed_6d
+            self.Mixed_6e = model.Mixed_6e
+            self.Mixed_7a = model.Mixed_7a
+            self.Mixed_7b = model.Mixed_7b
+            self.Mixed_7c = model.Mixed_7c
+            self.emb_features = conv1x1(768, self.nef)
+            self.emb_cnn_code = nn.Linear(2048, self.nef)
+        else: 
+            self.cnn = model
+            self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+            self.emb_features = conv1x1(1024, self.nef)  # TODO: check feature size
+            self.emb_cnn_code = nn.Linear(2048, self.nef)   # TODO: check feature size
 
     def init_trainable_weights(self):
         initrange = 0.1
@@ -202,6 +246,37 @@ class CNN_ENCODER(nn.Module):
         self.emb_cnn_code.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, x):
+        if cfg.TRAIN.CNN_MODEL == 'inception':
+            return self.inception_forward(x)
+        else:
+            return self.resnet_forward(x)
+
+    def resnet_forward(self, x):
+        # --> fixed-size input: batch x 3 x 299 x 299
+        x = nn.Upsample(size=(299, 299), mode='bilinear')(x)
+
+        x = self.cnn.conv1(x) # (batch_size, 64, 150, 150)
+        x = self.cnn.bn1(x)
+        x = self.cnn.relu(x)
+        x = self.cnn.maxpool(x)
+
+        x = self.cnn.layer1(x) # (batch_size, 64, 75, 75)
+        x = self.cnn.layer2(x) # (batch_size, 128, 38, 38)
+        x = self.cnn.layer3(x) # (batch_size, 256, 19, 19)
+        features = x 
+        x = self.cnn.layer4(x) # (batch_size, 512, 10, 10)
+
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+
+        # global image features
+        cnn_code = self.emb_cnn_code(x)
+        if features is not None:
+            features = self.emb_features(features)
+
+        return features, cnn_code
+
+    def inception_forward(self, x):
 
         features = None
         # --> fixed-size input: batch x 3 x 299 x 299

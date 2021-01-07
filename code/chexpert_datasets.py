@@ -12,6 +12,8 @@ import torch.utils.data as data
 from torch.autograd import Variable
 import torchvision.transforms as transforms
 
+from transformers     import AutoTokenizer
+
 import re
 import os
 import sys
@@ -42,29 +44,49 @@ def prepare_data(data):
         else:
             real_imgs.append(Variable(imgs[i]))
 
-    captions = captions[sorted_cap_indices].squeeze()
+    if 'bert' in cfg.TEXT.TEXT_MODEL:
+        captions = {k: v[sorted_cap_indices].squeeze() for k,v in captions.items()}
+    else:
+        captions = {k: v[sorted_cap_indices] for k,v in captions.items()}
+        captions = captions[sorted_cap_indices].squeeze()
+
     class_ids = class_ids[sorted_cap_indices].numpy()
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
 
     if cfg.CUDA:
-        captions = Variable(captions).cuda()
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            captions = {k: Variable(v).cuda() for k,v in captions.items()}
+        else: 
+            captions = Variable(captions).cuda()
         sorted_cap_lens = Variable(sorted_cap_lens).cuda()
     else:
-        captions = Variable(captions)
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            captions = {k: Variable(v) for k,v in captions.items()}
+        else: 
+            captions = Variable(captions)
         sorted_cap_lens = Variable(sorted_cap_lens)
 
     ## 
     w_sorted_cap_lens, w_sorted_cap_indices = \
         torch.sort(wrong_caps_len, 0, True)
 
-    wrong_caps = wrong_caps[w_sorted_cap_indices].squeeze()
+    if 'bert' in cfg.TEXT.TEXT_MODEL:
+        wrong_caps = {k: v[sorted_cap_indices] for k,v in wrong_caps.items()}
+    else:
+        wrong_caps = wrong_caps[w_sorted_cap_indices].squeeze()
     wrong_cls_id = wrong_cls_id[w_sorted_cap_indices].numpy()
 
     if cfg.CUDA:
-        wrong_caps = Variable(wrong_caps).cuda()
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            wrong_caps = {k: Variable(v).cuda() for k,v in wrong_caps.items()}
+        else: 
+            wrong_caps = Variable(wrong_caps).cuda()
         w_sorted_cap_lens = Variable(w_sorted_cap_lens).cuda()
     else:
-        wrong_caps = Variable(wrong_caps)
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            wrong_caps = {k: Variable(v) for k,v in wrong_caps.items()}
+        else: 
+            wrong_caps = Variable(wrong_caps)
         w_sorted_cap_lens = Variable(w_sorted_cap_lens)
 
     return [real_imgs, captions, sorted_cap_lens,
@@ -95,7 +117,7 @@ def get_imgs(img_path, imsize,
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
-CHEXPERT_DATA_DIR = '/data4/embeddingx/CheXpert/CheXpert-v1.0/' 
+CHEXPERT_DATA_DIR = '/home/mars/chexpert/CheXpert-v1.0' 
 VIEW_COL = "Frontal/Lateral"
 PATH_COL = "Path"
 SPLIT_COL = "DataSplit"
@@ -107,7 +129,7 @@ class ChexpertDataset(data.Dataset):
             self, 
             data_dir=CHEXPERT_DATA_DIR,
             split='train',
-            base_size=64,   # TODO: change 
+            base_size=64,
             transform=None, 
             target_transform=None
         ):
@@ -115,11 +137,10 @@ class ChexpertDataset(data.Dataset):
 
         self.norm = transforms.Compose([
             transforms.ToTensor(),
-            #transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))    # TODO: why was it normalized with 0.5
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])   
-        self.target_transform = target_transform    # NOTE: taget transform is none based on main
-        self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE   # TODO: find out number of sentences 
+        self.target_transform = target_transform   
+        self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE 
 
         self.imsize = []
         for i in range(cfg.TREE.BRANCH_NUM):
@@ -148,6 +169,12 @@ class ChexpertDataset(data.Dataset):
         self.class_id = self.df[self.df.Split == split]['No Finding'].tolist()
 
         self.number_example = len(self.filenames)
+
+        # using bert instead of LSTM
+        if 'bert' in cfg.TEXT.TEXT_MODEL:
+            self.tokenizer = AutoTokenizer.from_pretrained(cfg.TEXT.TEXT_MODEL)
+            self.idxtoword = {v:k for k,v in self.tokenizer.get_vocab().items()}
+
 
     def load_captions(self, split):
 
@@ -297,56 +324,49 @@ class ChexpertDataset(data.Dataset):
             filenames = []
         return filenames
 
-    """
-    def get_caption(self, sent_ix):
-        # a list of indices for a sentence
-        sent_caption = np.asarray(self.captions[sent_ix]).astype('int64')
-        if (sent_caption == 0).sum() > 0:
-            print('ERROR: do not need END (0) token', sent_caption)
-        num_words = len(sent_caption)
-        x = np.zeros((cfg.TEXT.WORDS_NUM, 1), dtype='int64')
-        x_len = num_words
-        if num_words <= cfg.TEXT.WORDS_NUM:
-            x[:num_words, 0] = sent_caption
-        else:
-            ix = list(np.arange(num_words))  # 1, 2, 3,..., maxNum
-            np.random.shuffle(ix)
-            ix = ix[:cfg.TEXT.WORDS_NUM]
-            ix = np.sort(ix)
-            x[:, 0] = sent_caption[ix]
-            x_len = cfg.TEXT.WORDS_NUM
-        return x, x_len
-    """
-
     def get_caption(self, path):
         
         series_sents = self.path2sent[path]
+
 
         if len(series_sents) == 0:
             print(path)
             raise Exception('no sentence for path')
 
         sent_ix = random.randint(0, len(series_sents))
+        sent = series_sents[sent_ix] 
 
-        # a list of indices for a sentence
-        sent_caption = np.asarray(series_sents[sent_ix]).astype('int64')
-        if (sent_caption == 0).sum() > 0:
-            print('ERROR: do not need END (0) token', sent_caption)
-        num_words = len(sent_caption)
-        x = np.zeros((cfg.TEXT.WORDS_NUM, 1), dtype='int64')
-        x_len = num_words
-        if num_words <= cfg.TEXT.WORDS_NUM:
-            x[:num_words, 0] = sent_caption
-        
-        # TODO: maybe not completely random resample word 
-        else:
-            ix = list(np.arange(num_words))  # 1, 2, 3,..., maxNum
-            np.random.shuffle(ix)
-            ix = ix[:cfg.TEXT.WORDS_NUM]
-            ix = np.sort(ix)
-            x[:, 0] = sent_caption[ix]
-            x_len = cfg.TEXT.WORDS_NUM
-        return x, x_len
+        # for LSTM
+        if 'bert' not in cfg.TEXT.TEXT_MODEL:
+            # a list of indices for a sentence
+            sent_caption = np.asarray(sent).astype('int64')
+            if (sent_caption == 0).sum() > 0:
+                print('ERROR: do not need END (0) token', sent_caption)
+            num_words = len(sent_caption)
+            x = np.zeros((cfg.TEXT.WORDS_NUM, 1), dtype='int64')
+            x_len = num_words
+            if num_words <= cfg.TEXT.WORDS_NUM:
+                x[:num_words, 0] = sent_caption
+            
+            # TODO: maybe not completely random resample word 
+            else:
+                ix = list(np.arange(num_words))  # 1, 2, 3,..., maxNum
+                np.random.shuffle(ix)
+                ix = ix[:cfg.TEXT.WORDS_NUM]
+                ix = np.sort(ix)
+                x[:, 0] = sent_caption[ix]
+                x_len = cfg.TEXT.WORDS_NUM
+            return x, x_len
+        else: 
+            sent = ' '.join([self.ixtoword[x] for x in sent])
+
+            tokens = self.tokenizer(
+                sent, return_tensors='pt', truncation=True, 
+                padding='max_length', max_length=cfg.TEXT.WORDS_NUM
+            )
+            x_len = len([t for t in tokens['input_ids'][0] if t != 0])
+
+            return tokens, x_len
 
     def get_imgs(self, img_path, imsize,
                 transform=None, normalize=None):
@@ -356,8 +376,6 @@ class ChexpertDataset(data.Dataset):
         # tranform images 
         x = self._resize_img(x, imsize[-1])    # TODO: double check 
         img = Image.fromarray(x).convert('RGB')
-        if transform is not None:
-            img = transform(img)
 
         if transform is not None:
             img = transform(img)
@@ -384,16 +402,6 @@ class ChexpertDataset(data.Dataset):
         imgs = self.get_imgs(
             img_name, self.imsize, self.transform, normalize=self.norm
         )
-        # randomly select a sentence
-        #sent_ix = random.randint(0, self.embeddings_num)
-        #new_sent_ix = index * self.embeddings_num + sent_ix
-        #caps, cap_len = self.get_caption(new_sent_ix)
-
-        # randomly select a mismatch sentence
-        #wrong_idx = random.randint(0, len(self.filenames))
-        #wrong_new_sent_ix = wrong_idx * self.embeddings_num + sent_ix
-        #wrong_caps, wrong_cap_len = self.get_caption(wrong_new_sent_ix)
-        #wrong_cls_id = self.class_id[wrong_idx]
 
         # randomly select a sentence
         caps, cap_len = self.get_caption(key)
